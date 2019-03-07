@@ -103,7 +103,7 @@ fail _ = Nothing
     System states are hard to manage and they're not immutable which may lead to unexpected behaviors.  
     Solution: We use Monad to operate states in an isolated environment with an operation of composed functions.
 # Monads in C&#35;
-C&#35; is a general-purpose, multi-paradigm programming language encompassing strong typing, lexically scoped, imperative, declarative, functional, generic, object-oriented (class-based), and component-oriented programming disciplines.  
+C&#35; is a general-purpose, multi-paradigm programming language encompassing strong typing, lexically scoped, imperative, declarative, functional, generic, object-oriented, and component-oriented programming disciplines.  
 Now let's see Monads in C&#35;!
 # `Task<T>` is Monad
 Asynchronous invoke
