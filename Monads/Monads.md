@@ -8,6 +8,7 @@ Firstly we need to introduce a type 'Maybe':
 ```haskell
 data Maybe a = Just a | Nothing
 ```
+
 # Functor
 'Maybe' is functor!
 ```haskell
@@ -90,7 +91,7 @@ fail _ = Nothing
     main (Just 5) (Just 1) = ???
     -- (Maybe Integer) + Integer ?
     ```
-    Solution: we need 'bind', and also make produce Maybe
+    Solution: we need 'bind', and also make f produce Maybe
     ```haskell
     f :: Num a => a -> Maybe a
     f x = Just (x + 1)
@@ -98,6 +99,9 @@ fail _ = Nothing
     main :: Num a => Maybe a -> Maybe a
     main x = (g x) >>= f
     ```
+- Use system states (no varibles, only functions in a program)
+    System states are hard to manage and they're not immutable which may lead to unexpected behaviors.  
+    Solution: We use Monad to operate states in an isolated environment with an operation of composed functions.
 # Monads in C&#35;
 C&#35; is a general-purpose, multi-paradigm programming language encompassing strong typing, lexically scoped, imperative, declarative, functional, generic, object-oriented (class-based), and component-oriented programming disciplines.  
 Now let's see Monads in C&#35;!
@@ -183,12 +187,14 @@ t2 = null; // t2 is nullable
 # Implement Monads
 Let's implement some Monads.
 - `Try` √
-- `Either`
+- `Either` √
 - `IO`
-- `Reader` √
-- `Writer` √
-- `State` √
-- `Reader + Writer + State: RWS` √
+- `Reader`
+- `Writer`
+- `State`
+- `Reader + Writer + State: RWS`
+
+......
 
 # Unit
 ```csharp
@@ -213,7 +219,7 @@ public struct Unit
 // The Try monad delegate
 public delegate TryResult<T> Try<T>();
 
-/// Holds the state of the error monad during the bind function. If IsFaulted == true then the bind function will be cancelled.
+// Holds the state of the error monad during the bind function. If IsFaulted == true then the bind function will be cancelled.
 public struct TryResult<T>
 {
     public readonly T Value;
@@ -276,7 +282,7 @@ public static class TryExt
             return res.Value;
     }
 
-    // Return the value of the monad and throw an exception if the monad is in a faulted state.
+    // Return the value of the monad and it throws an exception if the monad is in a faulted state.
     public static T Value<T>(this Try<T> self)
     {
         var res = self.Try();
@@ -453,6 +459,7 @@ public static class TryExt
                     string _ => (T)Convert.ChangeType((Convert.ToString(lhsValue.Value) + Convert.ToString(rhsValue.Value)), typeof(T)),
                     _ => throw new InvalidOperationException($"Type {typeof(T).Name} is not appendable. Consider implementing the IAppendable interface.")
                 }
+                return result;
             }
         };
     }
@@ -557,393 +564,442 @@ public class Try
 }
 ```
 
-# Reader
+# Either
 ```csharp
-// Allows for an 'environment' value to be carried through bind functions
-public delegate A Reader<E, A>(E environment);
-
-public static class Reader
+public class Either
 {
-    public static Reader<E, A> Return<E, A>(A value = default(A))
+    // Construct an Either Left monad
+    public static Either<L, R> Left<L, R>(L left)
     {
-        return (E env) => value;
+        return new Either<L, R>(left);
     }
 
-    public static Reader<E, E> Ask<E>(Func<E, E> f)
+    // Construct an Either Right monad
+    public static Either<L, R> Right<L, R>(R right)
     {
-        if (f == null) throw new ArgumentNullException("f");
-        return (E env) => f(env);
+        return new Either<L, R>(right);
     }
 
-    public static Reader<E, E> Ask<E>()
+    // Monadic zero
+    public static Either<L, R> Mempty<L, R>()
     {
-        return (E env) => env;
+        return new Either<L, R>(default(R));
     }
 }
 
-// Reader monad extensions
-public static class ReaderExt
+/*
+The Either monad represents values with two possibilities: a value of Left or Right Either is sometimes used to represent a value which is either correct or an error, by convention, 'Left' is used to hold an error value 'Right' is used to hold a correct value.
+So you can see that Either has a very close relationship to the Error monad.  However, the Either monad won't capture exceptions.  Either would primarily be used for known error values rather than exceptional ones.
+Once the Either monad is in the Left state it cancels the monad bind function and returns immediately.
+*/
+public struct Either<L, R> : IEquatable<Either<L, R>>
 {
-    public static Reader<E, E> Ask<E, T>(this Reader<E, T> self, Func<E, E> f)
+    static readonly bool IsAppendable = typeof(IAppendable<R>).GetTypeInfo().IsAssignableFrom(typeof(R).GetTypeInfo());
+
+    readonly L left;
+    readonly R right;
+
+    // Returns true if the monad object is in the Left state
+    public readonly bool IsLeft;
+
+    // Left constructor
+    internal Either(L left)
     {
-        if (f == null) throw new ArgumentNullException("f");
-        return (E env) => f(env);
+        IsLeft = true;
+        this.left = left;
+        this.right = default(R);
     }
 
-    public static Reader<E, E> Ask<E, T>(this Reader<E, T> self)
+    // Right constructor
+    internal Either(R right)
     {
-        return (E env) => env;
+        IsLeft = false;
+        this.right = right;
+        this.left = default(L);
     }
 
-    public static Reader<E, U> Select<E, T, U>(this Reader<E, T> self, Func<T, U> select)
+    // Returns true if the monad object is in the Right state
+    public bool IsRight
     {
-        if (select == null) throw new ArgumentNullException("select");
-        return (E env) => select(self(env));
+        get
+        {
+            return !IsLeft;
+        }
     }
 
-    public static Reader<E, V> SelectMany<E, T, U, V>(
-        this Reader<E, T> self,
-        Func<T, Reader<E, U>> bind,
-        Func<T, U, V> project
-        )
+    // Get the Left value and it throws an exception if the object is in the Right state
+    public L Left
     {
-        if (bind == null) throw new ArgumentNullException("bind");
-        if (project == null) throw new ArgumentNullException("project");
-        return (E env) =>
+        get
+        {
+            if (!IsLeft)
+                throw new InvalidOperationException("Not in the left state");
+            return left;
+        }
+    }
+
+    // Get the Right value and it throws an exception if the object is in the Left state
+    public R Right
+    {
+        get
+        {
+            if (!IsRight)
+                throw new InvalidOperationException("Not in the right state");
+            return right;
+        }
+    }
+
+    /* 
+    Pattern matching method for a branching expression
+    Right: Action to perform if the monad is in the Right state
+    Left: Action to perform if the monad is in the Left state 
+    */
+    public T Match<T>(Func<R, T> Right, Func<L, T> Left)
+    {
+        if (Right == null) throw new ArgumentNullException("Right");
+        if (Left == null) throw new ArgumentNullException("Left");
+        return IsLeft
+            ? Left(this.Left)
+            : Right(this.Right);
+    }
+
+    /*
+    Pattern matching method for a branching expression and it throws an exception if the object is in the Left state
+    right: Action to perform if the monad is in the Right state
+    */
+    public T MatchRight<T>(Func<R, T> right)
+    {
+        if (right == null) throw new ArgumentNullException("right");
+        return right(this.Right);
+    }
+
+    /*
+    Pattern matching method for a branching expression and it throws an exception if the object is in the Right state
+    left: Action to perform if the monad is in the Left state
+    */
+    public T MatchLeft<T>(Func<L, T> left)
+    {
+        if (left == null) throw new ArgumentNullException("left");
+        return left(this.Left);
+    }
+
+    /*
+    Pattern matching method for a branching expression
+    Returns the defaultValue if the monad is in the Left state
+    right: Action to perform if the monad is in the Right state
+    */
+    public T MatchRight<T>(Func<R, T> right, T defaultValue)
+    {
+        if (right == null) throw new ArgumentNullException("right");
+        if (IsLeft)
+            return defaultValue;
+        return right(this.Right);
+    }
+
+    /*
+    Pattern matching method for a branching expression
+    Returns the defaultValue if the monad is in the Right state
+    left: Action to perform if the monad is in the Left state
+    */
+    public T MatchLeft<T>(Func<L, T> left, T defaultValue)
+    {
+        if (left == null) throw new ArgumentNullException("left");
+        if (IsRight)
+            return defaultValue;
+        return left(this.Left);
+    }
+
+
+    /*
+    Pattern matching method for a branching expression
+    Right: Action to perform if the monad is in the Right state
+    Left: Action to perform if the monad is in the Left state
+    */
+    public Unit Match(Action<R> Right, Action<L> Left)
+    {
+        if (Right == null) throw new ArgumentNullException("Right");
+        if (Left == null) throw new ArgumentNullException("Left");
+
+        var self = this;
+
+        return Unit.Return(() =>
+        {
+            if (self.IsLeft)
+                Left(self.Left);
+            else
+                Right(self.Right);
+        });
+    }
+
+    /*
+    Pattern matching method for a branching expression and it throws an exception if the object is in the Left state
+    right: Action to perform if the monad is in the Right state
+    */
+    public Unit MatchRight(Action<R> right)
+    {
+        if (right == null) throw new ArgumentNullException("right");
+        var self = this;
+        return Unit.Return(() => right(self.Right));
+    }
+
+    /*
+    Pattern matching method for a branching expression and it throws an exception if the object is in the Right state
+    left: Action to perform if the monad is in the Left state
+    */
+    public Unit MatchLeft(Action<L> left)
+    {
+        if (left == null) throw new ArgumentNullException("left");
+        var self = this;
+        return Unit.Return(() => left(self.Left));
+    }
+
+    /*
+    Monadic append
+    If the left-hand side or right-hand side are in a Left state, then Left propogates
+    */
+    public static Either<L, R> operator +(Either<L, R> lhs, Either<L, R> rhs)
+    {
+        return lhs.Mappend(rhs);
+    }
+
+    /*
+    Left coalescing operator
+    Returns the left-hand operand if the operand is not Left; otherwise it returns the right hand operand.
+    In other words it returns the first valid option in the operand sequence.
+    */
+    public static Either<L, R> operator |(Either<L, R> lhs, Either<L, R> rhs)
+    {
+        return lhs.IsRight
+            ? lhs
+            : rhs;
+    }
+
+    /*
+    Returns the right-hand side if the left-hand and right-hand side are not Left.
+    In order words every operand must hold a value for the result to be Right.
+    In the case where all operands return Left, then the last operand will provide its value.
+    */
+    public static Either<L, R> operator &(Either<L, R> lhs, Either<L, R> rhs)
+    {
+        return lhs.IsRight && rhs.IsRight
+            ? rhs
+            : lhs.IsRight
+                ? rhs
+                : lhs;
+    }
+
+    /*
+    Monadic append
+    If the left-hand side or right-hand side are in a Left state, then Left propagates
+    */
+    public Either<L, R> Mappend(Either<L, R> rhs)
+    {
+        if (IsLeft)
+        {
+            return this;
+        }
+        else
+        {
+            if (rhs.IsLeft)
             {
-                var resT = self(env);
-                var resU = bind(resT);
-                var resV = project(resT, resU(env));
-                return resV;
-            };
+                return rhs.Left;
+            }
+            else
+            {
+                if (IsAppendable)
+                {
+                    var lhs = this.Right as IAppendable<R>;
+                    return new Either<L, R>(lhs.Append(rhs.Right));
+                }
+                else
+                {
+                    var test = default(R);
+                    var result = test switch
+                    {
+                        long _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToInt64(right) + Convert.ToInt64(rhs.right)), typeof(R))),
+                        ulong _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToUInt64(right) + Convert.ToUInt64(rhs.right)), typeof(R))),
+                        int _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToInt32(right) + Convert.ToInt32(rhs.right)), typeof(R))),
+                        uint _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToUInt32(right) + Convert.ToUInt32(rhs.right)), typeof(R))),
+                        short _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToInt16(right) + Convert.ToInt16(rhs.right)), typeof(R))),
+                        ushort _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToUInt16(right) + Convert.ToUInt16(rhs.right)), typeof(R))),
+                        decimal _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToDecimal(right) + Convert.ToDecimal(rhs.right)), typeof(R))),
+                        double _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToDouble(right) + Convert.ToDouble(rhs.right)), typeof(R))),
+                        float _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToSingle(right) + Convert.ToSingle(rhs.right)), typeof(R))),
+                        char _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToChar(right) + Convert.ToChar(rhs.right)), typeof(R))),
+                        byte _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToByte(right) + Convert.ToByte(rhs.right)), typeof(R))),
+                        string _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToString(right) + Convert.ToString(rhs.right)), typeof(R))),
+                        _ => throw new InvalidOperationException($"Type {typeof(R).Name} is not appendable.  Consider implementing the IAppendable interface.")
+                    }
+                    return result;
+                }
+            }
+        }
     }
 
-    public static Func<T> Memorize<E, T>(this Reader<E, T> self, E environment)
+    // Either -> IEnumerable<R>
+    public IEnumerable<R> AsEnumerable()
     {
-        var res = self(environment);
-        return () => res;
+        if (IsRight)
+            yield return Right;
+        else
+            yield break;
     }
 
-}
-```
-
-# Writer
-```csharp
-public delegate WriterResult<W, A> Writer<W, A>();
-
-public struct WriterResult<W, A>
-{
-    public readonly A Value;
-    public readonly IEnumerable<W> Output;
-
-    internal WriterResult(A value, IEnumerable<W> output)
+    // Either -> infinite IEnumerable<R>
+    public IEnumerable<R> AsEnumerableInfinite()
     {
-        if (output == null) throw new ArgumentNullException("output");
-        Value = value;
-        Output = output;
-    }
-}
-
-public static class WriterResult
-{
-    public static WriterResult<W, A> Create<W, A>(A value, IEnumerable<W> output)
-    {
-        if (output == null) throw new ArgumentNullException("output");
-        return new WriterResult<W, A>(value, output);
-    }
-}
-
-public static class Writer
-{
-    public static Writer<W, A> Return<W, A>(A a)
-    {
-        return () => WriterResult.Create<W, A>(a, new W[0]);
+        if (IsRight)
+            while (true) yield return Right;
+        else
+            yield break;
     }
 
-    public static WriterResult<W, A> Tell<W, A>(A a, W w)
+    public static bool operator ==(Either<L, R> lhs, Either<L, R> rhs)
     {
-        return WriterResult.Create<W, A>(a, new W[1] { w });
+        return lhs.Equals(rhs);
     }
 
-    public static WriterResult<W, A> Tell<W, A>(A a, IEnumerable<W> ws)
+    public static bool operator !=(Either<L, R> lhs, Either<L, R> rhs)
     {
-        if (ws == null) throw new ArgumentNullException("ws");
-        return WriterResult.Create<W, A>(a, ws);
+        return !lhs.Equals(rhs);
     }
 
-    public static Writer<W, Unit> Tell<W>(W value)
+    public static bool operator ==(Either<L, R> lhs, L rhs)
     {
-        return () => WriterResult.Create<W, Unit>(Unit.Default, new W[1] { value });
+        return lhs.Equals(new Either<L, R>(rhs));
     }
-}
 
-public static class WriterExt
-{
-    /// <summary>
-    /// Select
-    /// </summary>
-    public static Writer<W, U> Select<W, T, U>(this Writer<W, T> self, Func<T, U> select)
+    public static bool operator !=(Either<L, R> lhs, L rhs)
     {
-        if (select == null) throw new ArgumentNullException("select");
-        return () =>
+        return !lhs.Equals(new Either<L, R>(rhs));
+    }
+
+    public static bool operator ==(Either<L, R> lhs, R rhs)
+    {
+        return lhs.Equals(new Either<L, R>(rhs));
+    }
+    
+    public static bool operator !=(Either<L, R> lhs, R rhs)
+    {
+        return !lhs.Equals(new Either<L, R>(rhs));
+    }
+
+    public static implicit operator Either<L, R>(L left)
+    {
+        return new Either<L, R>(left);
+    }
+
+    public static implicit operator Either<L, R>(R right)
+    {
+        return new Either<L, R>(right);
+    }
+
+    public override int GetHashCode()
+    {
+        return IsLeft
+            ? Left == null ? 0 : Left.GetHashCode()
+            : Right == null ? 0 : Right.GetHashCode();
+    }
+
+    public override bool Equals(object obj)
+    {
+        if (obj == null)
         {
-            var resT = self();
-            var resU = select(resT.Value);
-            return WriterResult.Create<W, U>(resU, resT.Output);
-        };
-    }
-
-    public static Writer<W, V> SelectMany<W, T, U, V>(
-        this Writer<W, T> self,
-        Func<T, Writer<W, U>> bind,
-        Func<T, U, V> project
-    )
-    {
-        if (bind == null) throw new ArgumentNullException("bind");
-        if (project == null) throw new ArgumentNullException("project");
-
-        return () =>
+            return false;
+        }
+        else
         {
-            var resT = self();
-            var resU = bind(resT.Value).Invoke();
-            var resV = project(resT.Value, resU.Value);
-
-            return WriterResult.Create<W, V>(resV, resT.Output.Concat(resU.Output));
-        };
+            if (obj is Either<L, R>)
+            {
+                var rhs = (Either<L, R>)obj;
+                return IsRight && rhs.IsRight
+                    ? Right.Equals(rhs.Right)
+                    : IsLeft && rhs.IsLeft
+                        ? true
+                        : false;
+            }
+            else if (obj is R)
+            {
+                var rhs = (R)obj;
+                return IsRight
+                    ? Right.Equals(rhs)
+                    : false;
+            }
+            else if (obj is L)
+            {
+                var rhs = (L)obj;
+                return IsLeft
+                    ? Left.Equals(rhs)
+                    : false;
+            }
+            else
+            {
+                return false;
+            }
+        }
     }
 
-    public static Func<WriterResult<W, T>> Memorize<W, T>(this Writer<W, T> self)
+    public bool Equals(Either<L, R> rhs)
     {
-        var res = self();
-        return () => res;
-    }
-}
-```
-
-# State
-```csharp
-public delegate StateResult<S, A> State<S, A>(S state);
-
-public static class State
-{
-    public static State<S, A> Return<S, A>(A value = default(A))
-    {
-        return (S state) => new StateResult<S, A>(state, value);
+        return Equals((object)rhs);
     }
 
-    public static State<S, S> Get<S>(Func<S, S> f)
+    public bool Equals(L rhs)
     {
-        if (f == null) throw new ArgumentNullException("f");
-        return (S state) => StateResult.Create<S, S>(state, f(state));
+        return Equals((object)rhs);
     }
 
-    public static State<S, S> Get<S>()
+    public bool Equals(R rhs)
     {
-        return (S state) => StateResult.Create<S, S>(state, state);
-    }
-
-    public static State<S, Unit> Put<S>(S state)
-    {
-        return _ => StateResult.Create<S, Unit>(state, Unit.Default);
-    }
-}
-
-public struct StateResult<S, A>
-{
-    public readonly A Value;
-    public readonly S State;
-
-    internal StateResult(S state, A value)
-    {
-        Value = value;
-        State = state;
+        return Equals((object)rhs);
     }
 }
 
-public static class StateResult
+// Either extension methods
+public static class EitherExt
 {
-    public static StateResult<S, A> Create<S, A>(S state, A value)
+    public static Either<L, UR> Select<L, TR, UR>(
+        this Either<L, TR> self,
+        Func<TR, UR> selector)
     {
-        return new StateResult<S, A>(state, value);
-    }
-}
+        if (selector == null) throw new ArgumentNullException("selector");
 
-public static class StateExt
-{
-    public static State<S, A> With<S, A>(this State<S, A> self, Func<S, S> f)
+        if (self.IsLeft)
+            return Either.Left<L, UR>(self.Left);
+
+        return Either.Right<L, UR>(selector(self.Right));
+    }
+
+    public static Either<L, VR> SelectMany<L, TR, UR, VR>(
+        this Either<L, TR> self,
+        Func<TR, Either<L, UR>> selector,
+        Func<TR, UR, VR> projector)
     {
-        if (f == null) throw new ArgumentNullException("f");
-        return (S state) =>
+        if (selector == null) throw new ArgumentNullException("selector");
+        if (projector == null) throw new ArgumentNullException("projector");
+
+        if (self.IsLeft)
+            return Either.Left<L, VR>(self.Left);
+
+        var res = selector(self.Right);
+        if (res.IsLeft)
+            return Either.Left<L, VR>(res.Left);
+
+        return Either.Right<L, VR>(projector(self.Right, res.Right));
+    }
+
+    public static Either<L, R> Mconcat<L, R>(this IEnumerable<Either<L, R>> ms)
+    {
+        var value = ms.Head();
+
+        foreach (var m in ms.Tail())
         {
-            var res = self(state);
-            return StateResult.Create<S, A>(f(res.State), res.Value);
-        };
-    }
+            if (value.IsLeft)
+                return value;
 
-    public static State<S, U> Select<S, T, U>(this State<S, T> self, Func<T, U> map)
-    {
-        if (map == null) throw new ArgumentNullException("map");
-        return (S state) =>
-        {
-            var resT = self(state);
-            return StateResult.Create<S, U>(resT.State, map(resT.Value));
-        };
-    }
-
-    public static State<S, V> SelectMany<S, T, U, V>(
-        this State<S, T> self,
-        Func<T, State<S, U>> bind,
-        Func<T, U, V> project 
-        )
-    {
-        if (bind == null) throw new ArgumentNullException("bind");
-        if (project == null) throw new ArgumentNullException("project");
-
-        return (S state) =>
-        {
-            var resT = self(state);
-            var resU = bind(resT.Value)(resT.State);
-            var resV = project(resT.Value, resU.Value);
-            return new StateResult<S, V>(resU.State, resV);
-        };
-    }
-
-    public static Func<StateResult<S, A>> Memorize<S, A>(this State<S, A> self, S state)
-    {
-        var res = self(state);
-        return () => res;
-    }
-}
-```
-
-# RWS
-```csharp
-public delegate RWSResult<W, S, A> RWS<R, W, S, A>(R r, S s);
-
-public struct RWSResult<W, S, A>
-{
-    public readonly A Value;
-    public readonly IEnumerable<W> Output;
-    public readonly S State;
-
-    internal RWSResult(A value, IEnumerable<W> output, S state)
-    {
-        Value = value;
-        Output = output;
-        State = state;
-    }
-}
-
-public static class RWSResult
-{
-    public static RWSResult<W, S, A> Create<W, S, A>(A value, IEnumerable<W> output, S state)
-    {
-        if (output == null) throw new ArgumentNullException("output");
-        return new RWSResult<W, S, A>(value, output, state);
-    }
-}
-
-public static class RWS
-{
-    public static RWS<R, W, S, A> Return<R, W, S, A>(A a)
-    {
-        return (R r, S s) => RWSResult.Create<W, S, A>(a, new W[0], s);
-    }
-
-    public static RWSResult<W, S, A> Tell<W, S, A>(A a, W w)
-    {
-        return RWSResult.Create<W, S, A>(a, new W[1] { w }, default(S));
-    }
-
-    public static RWSResult<W, S, A> Tell<W, S, A>(A a, IEnumerable<W> ws)
-    {
-        if (ws == null) throw new ArgumentNullException("ws");
-        return RWSResult.Create<W, S, A>(a, ws, default(S));
-    }
-
-    public static RWS<R, W, S, Unit> Tell<R, W, S>(W value)
-    {
-        return (R r, S s) => RWSResult.Create<W, S, Unit>(Unit.Default, new W[1] { value }, s);
-    }
-
-    public static RWS<R, W, S, R> Ask<R, W, S>(Func<R, R> f)
-    {
-        if (f == null) throw new ArgumentNullException("f");
-        return (R r, S s) => RWSResult.Create(f(r), new W[0], s);
-    }
-
-    public static RWS<R, W, S, R> Ask<R, W, S>()
-    {
-        return (R r, S s) => RWSResult.Create(r, new W[0], s);
-    }
-
-    public static RWS<R, W, S, S> Get<R, W, S>(Func<S, S> f)
-    {
-        if (f == null) throw new ArgumentNullException("f");
-        return (R r, S s) => RWSResult.Create<W, S, S>(s, new W[0], f(s));
-    }
-
-    public static RWS<R, W, S, S> Get<R, W, S>()
-    {
-        return (R r, S s) => RWSResult.Create<W, S, S>(s, new W[0], s);
-    }
-
-    public static RWS<R, W, S, Unit> Put<R, W, S>(S state)
-    {
-        return (R r, S s) => RWSResult.Create<W, S, Unit>(Unit.Default, new W[0], state);
-    }
-
-}
-
-public static class RWSExt
-{
-    public static RWS<R, W, S, R> Ask<R, W, S, T>(this RWS<R, W, S, T> self, Func<R, R> f)
-    {
-        if (f == null) throw new ArgumentNullException("f");
-        return (R r, S s) => RWSResult.Create(f(r), new W[0], s);
-    }
-
-    public static RWS<R, W, S, R> Ask<R, W, S, T>(this RWS<R, W, S, T> self)
-    {
-        return (R r, S s) => RWSResult.Create(r, new W[0], s);
-    }
-
-    public static RWS<R, W, S, U> Select<R, W, S, T, U>(this RWS<R, W, S, T> self, Func<T, U> select)
-        where S : class
-    {
-        if (select == null) throw new ArgumentNullException("select");
-        return (R r, S s) =>
-        {
-            var resT = self(r, s);
-            var resU = select(resT.Value);
-            return RWSResult.Create<W, S, U>(resU, resT.Output, resT.State ?? s);
-        };
-    }
-
-    public static RWS<R, W, S, V> SelectMany<R, W, S, T, U, V>(
-        this RWS<R, W, S, T> self,
-        Func<T, RWS<R, W, S, U>> bind,
-        Func<T, U, V> project
-    )
-        where S : class
-    {
-        if (bind == null) throw new ArgumentNullException("bind");
-        if (project == null) throw new ArgumentNullException("project");
-
-        return (R r, S s) =>
-        {
-            var resT = self(r, s);
-            var resU = bind(resT.Value).Invoke(r, resT.State ?? s);
-            var resV = project(resT.Value, resU.Value);
-
-            return RWSResult.Create<W, S, V>(resV, resT.Output.Concat(resU.Output), resU.State ?? resT.State ?? s);
-        };
-    }
-
-    public static Func<RWSResult<W, S, T>> Memorize<R, W, S, T>(this RWS<R, W, S, T> self, R r, S s)
-    {
-        var res = self(r, s);
-        return () => res;
+            value = value.Mappend(m);
+        }
+        return value;
     }
 }
 ```
