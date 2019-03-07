@@ -66,14 +66,14 @@ fail _ = Nothing
 - We want to program only using functions
 - The order of execution of multiple functions is unclear:
     ```haskell
-    f :: Num -> Num
+    f :: Fractional a => a -> a
     f x = x + 1
-    g :: Num -> Num -> Num
+    g :: Fractional a => a -> a -> a
     g x y = x / y
     ```
     Solution: compose them, if we want fist g and then f, just write:
     ```haskell
-    main :: Num -> Num -> Num
+    main :: Fractional a => a -> a -> a
     main x y = f (g x y)
     ```
 - But some functions might fail:
@@ -82,22 +82,19 @@ fail _ = Nothing
     ```
     Solution: We use 'Maybe'
     ```haskell
-    g :: Num a => Maybe a -> Maybe a -> Maybe a
-    g (Just 5) (Just 1) = Just 5
-    g (Just 5) (Just 0) = Nothing
+    g :: Eq a => Fractional a => a -> a -> Maybe a
+    g _ 0 = Nothing
+    g x y = Just (x / y)
     ```
 - But g returns a Maybe, however in f, a 'Maybe' can not be applied to '+' with an 'Integer'
     ```haskell
-    main (Just 5) (Just 1) = ???
-    -- (Maybe Integer) + Integer ?
+    main 5 1 = ???
+    -- Maybe + Integer ?
     ```
-    Solution: we need 'bind', and also make f produce Maybe
+    Solution:
     ```haskell
-    f :: Num a => a -> Maybe a
-    f x = Just (x + 1)
-    
-    main :: Num a => Maybe a -> Maybe a
-    main x = (g x) >>= f
+    main :: Eq a => Fractional a => a -> a -> Maybe a
+    main x y = fmap f (g x y)
     ```
 - Use system states (no varibles, only functions in a program)
     System states are hard to manage and they're not immutable which may lead to unexpected behaviors.  
