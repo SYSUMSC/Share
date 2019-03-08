@@ -3,10 +3,74 @@
 - A single unit
 - A design pattern that allows structing programs generically while automating away boilerplate code needed by the program logic
 - "裹在被子里打牌"
+- wtf ???
 
+# A world without Monad
+We want to program only using functions.  
 
+A pure function is a function where the return value is only determined by its input, without observable side effects. It means, a specific input will lead to a specific output.  
 
-Firstly we need to introduce a type 'Maybe':
+Hewever, let's take random generator as an example:   
+
+A random generator will access the random seed, which has "side effects": there're lots of states which are irrelavent with our code in these operations, and they are not explicit declared.  
+  
+`NextRandom()` accepts no input but it will output different numbers, and it's relavent with time.   
+
+```haskell
+NextRandom :: Int -- Shouldn't it be a value?
+```
+
+In order to program it in a "functional" way, we need to write a function which explicit declares all the states in parameters. And we need to pass those states via parameters, and in the end we can get a specific output from a specific input.  
+
+It's so complicated and hard to program.
+
+# What is Monad again and Why Monad
+We want to use functions which have "side effects".  
+
+We don't want to handle all the states and environment by ourselves.  
+
+Therefore, we can wrap an operation which has side effects and its states and values in a "package" and regard it as a new operation `Random Int`, where random is the package.  
+
+```haskell
+NextInput :: Random Int
+```
+
+However, `Random Int` is not a `Int`, and `Random Int` + `Int` is illegal. We only care about pertinent values in the `Random` but not the `Random` itself, so how can we operate values in the `Random` without unwrap it? (If we unwrap it from `Random`, there will be states in our code again)  
+
+Solution: construct a chain!  
+
+We cannot do `Random Int` + `Int`, but we can do it in the `Random` by operate the pertinent values immediately after `NextRandom()`.  
+
+We have 
+```haskell
+NextRandom :: Random Int
+PlusOne :: Int -> Int
+```
+
+We use a `bind` (`>>=`) and a `return`:
+```haskell
+(>>=) :: Random Int -> (Int -> Random Int) -> Random Int
+return :: Int -> Random Int
+
+NextRandom() >>= (return PlusOne)
+```
+
+Finally we get a `Random Int`!
+
+# Who are Monads
+- `IO` is Monad
+- `List` is Monad
+- `Maybe` is Monad
+- `Random` is Monad
+- `Either` is Monad
+- `Try` is Monad
+- `Reader` is Monad
+- `Writer` is Monad
+- `State` is Monad
+- ......
+
+# Maybe
+Take 'Maybe' as an example.
 ```haskell
 data Maybe a = Just a | Nothing
 ```
@@ -63,70 +127,6 @@ Nothing >>= _ = Nothing
 fail :: String -> Maybe a
 fail _ = Nothing
 ```
-
-# A world withour Monad
-We want to program only using functions.  
-
-A pure function is a function where the return value is only determined by its input, without observable side effects. It means, a specific input will lead to a specific output.  
-
-Hewever, let's take random generator as an example:   
-
-A random generator will access the random seed, which has "side effects": there're lots of states which are irrelavent with our code in these operations, and they are not explicit declared.  
-  
-`NextRandom()` accepts no input but it will output different numbers, and it's relavent with time.   
-
-```haskell
-NextRandom :: Int -- Shouldn't it be a value?
-```
-
-In order to program it in a "functional" way, we need to write a function which explicit declares all the states in parameters. And we need to pass those states via parameters, and in the end we can get a specific output from a specific input.  
-
-It's so complicated and hard to program.
-
-# Why Monad
-We want to use functions which have "side effects".  
-
-We don't want to handle all the states and environment by ourselves.  
-
-Therefore, we can wrap an operation which has side effects and its states and values in a "package" and regard it as a new operation `Random Int`, where random is the package.  
-
-```haskell
-NextInput :: Random Int
-```
-
-However, `Random Int` is not a `Int`, and `Random Int` + `Int` is illegal. We only care about pertinent values in the `Random` but not the `Random` itself, so how can we operate values in the `Random` without unwrap it? (If we unwrap it from `Random`, there will be states in our code again)  
-
-Solution: construct a chain!  
-
-We cannot do `Random Int` + `Int`, but we can do it in the `Random` by operate the pertinent values immediately after `NextRandom()`.  
-
-We have 
-```haskell
-NextRandom :: Random Int
-PlusOne :: Int -> Int
-```
-
-We use a `bind` (`>>=`) and a `return`:
-```haskell
-(>>=) :: Random Int -> (Int -> Random Int) -> Random Int
-return :: Int -> Random Int
-
-NextRandom() >>= (return PlusOne)
-```
-
-Finally we get a `Random Int`!
-
-# Who are Monads
-- `IO` is Monad
-- `List` is Monad
-- `Maybe` is Monad
-- `Random` is Monad
-- `Either` is Monad
-- `Try` is Monad
-- `Reader` is Monad
-- `Writer` is Monad
-- `State` is Monad
-- ......
 
 # Monads in C&#35;
 C&#35; is a general-purpose, multi-paradigm programming language encompassing strong typing, lexically scoped, imperative, declarative, functional, generic, object-oriented, and component-oriented programming disciplines.  
