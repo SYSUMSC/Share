@@ -17,7 +17,7 @@ A random generator will access the random seed, which has "side effects": there'
 `nextRandom` accepts no input but it will output different numbers, and it's relavent with time.   
 
 ```haskell
-nextRandom :: Int -- Shouldn't it be a value?
+nextRandom :: Int -- Shouldn't it be a constant value?
 ```
 
 In order to program it in a "functional" way, we need to write a function which explicit declares all the states in parameters. And we need to pass those states via parameters, and in the end we can get a specific output from a specific input.  
@@ -37,7 +37,7 @@ nextRandom :: Random Int
 
 However, `Random Int` is not a `Int`, and `Random Int` + `Int` is illegal. We only care about pertinent values in the `Random` but not the `Random` itself, so how can we operate values in the `Random` without unwrap it? (If we unwrap it from `Random`, there will be states in our code again)  
 
-Solution: construct a chain!  
+Solution: compose them to construct a chain!  
 
 We cannot do `Random Int` + `Int`, but we can do it in the `Random` by operate the pertinent values immediately after `nextRandom`.  
 
@@ -53,15 +53,15 @@ We use a `bind` (`>>=`) and a `return`:
 return :: Int -> Random Int
 
 nextRandom() >>= (return plusOne)
--- Actually it's unnecessary. We can use plusOne <$> nextRandom instead. 
+-- Actually it's unnecessary. We can use plusOne <$> nextRandom instead (functor). Monad can be used for something like "randomStringWithLength" to generate a random string with specific length.
 ```
 
 Finally we get a `Random Int`!
 
 # Who are Monads
+- `Maybe` is Monad
 - `IO` is Monad
 - `List` is Monad
-- `Maybe` is Monad
 - `Random` is Monad
 - `Either` is Monad
 - `Try` is Monad
@@ -118,6 +118,7 @@ apply f (pure x) :: Maybe Num
 -- inherit relation
 Applicative => Functor
 
+-- No side effects are special cases with side effects
 return :: a -> Maybe a
 return x = Just x
 
@@ -126,11 +127,46 @@ return x = Just x
 Nothing >>= _ = Nothing
 (Just x) >>= f = f x
 
+-- then
+(>>) :: Maybe a -> Maybe b -> Maybe b
+Nothing >> _ = Nothing
+_ >> Nothing = Nothing
+_ >> m = m
+
 fail :: String -> Maybe a
 fail _ = Nothing
 ```
 
-# Monads in C&#35;
+# IO
+```haskell
+printW :: [String] -> IO ()
+printW [] = return ()
+printW (h:t) = putStrLn h >> printW t   
+    
+-- getLine :: IO String
+-- words :: String -> [String]
+f :: IO [String]
+f = words <$> getLine
+
+main :: IO ()
+main = f >>= printW
+```
+With syntax sugar:
+```haskell
+printW :: [String] -> IO ()
+printW [] = return ()
+printW (h:t) = do
+    putStrLn h
+    printW t
+    
+f :: IO ()
+f = do
+    l <- getLine
+    let w = words l
+    printW w
+```
+
+# Appendix: Monads in C&#35;
 C&#35; is a general-purpose, multi-paradigm programming language encompassing strong typing, lexically scoped, imperative, declarative, functional, generic, object-oriented, and component-oriented programming disciplines.  
 
 Now let's see Monads in C&#35;!
@@ -274,16 +310,6 @@ public struct TryResult<T>
 
     // True if faulted
     public bool IsFaulted => Exception != null;
-
-    // ToString override
-    public override string ToString()
-    {
-        return IsFaulted
-            ? Exception.ToString()
-            : Value != null
-                ? Value.ToString()
-                : "[null]";
-    }
 }
 
 // Extension methods for the error monad
@@ -404,189 +430,12 @@ public static class TryExt
             }
         );
     }
-
-    // Fluent chaining of Try monads
-    public static Try<U> Then<T, U>(this Try<T> self, Func<T, U> getValue)
-    {
-        if (getValue == null) throw new ArgumentNullException("getValue");
-
-        var resT = self.Try();
-
-        return resT.IsFaulted
-            ? new Try<U>(() => new TryResult<U>(resT.Exception))
-            : new Try<U>(() =>
-                {
-                    try
-                    {
-                        U resU = getValue(resT.Value);
-                        return new TryResult<U>(resU);
-                    }
-                    catch (Exception e)
-                    {
-                        return new TryResult<U>(e);
-                    }
-                });
-    }
-
-    // Try<T> -> IEnumerable<T>
-    public static IEnumerable<T> AsEnumerable<T>(this Try<T> self)
-    {
-        var res = self.Try();
-        if (res.IsFaulted)
-            yield break;
-        else
-            yield return res.Value;
-    }
-
-    // Try<T> -> infinite IEnumerable<T>
-    public static IEnumerable<T> AsEnumerableInfinite<T>(this Try<T> self)
-    {
-        var res = self.Try();
-        if (res.IsFaulted)
-            yield break;
-        else
-            while (true) yield return res.Value;
-    }
-
-    // Mappend
-    public static Try<T> Mappend<T>(this Try<T> lhs, Try<T> rhs)
-    {
-        if (rhs == null) throw new ArgumentNullException("rhs");
-
-        return () =>
-        {
-            var lhsValue = lhs();
-            if (lhsValue.IsFaulted) return lhsValue;
-
-            var rhsValue = rhs();
-            if (rhsValue.IsFaulted) return rhsValue;
-
-            bool IsAppendable = typeof(IAppendable<T>).GetTypeInfo().IsAssignableFrom(typeof(T).GetTypeInfo());
-
-            if (IsAppendable)
-            {
-                var lhsAppendValue = lhsValue.Value as IAppendable<T>;
-                return lhsAppendValue.Append(rhsValue.Value);
-            }
-            else
-            {
-                var test = default(T);
-
-                var result = test switch
-                {
-                    long _ => (T)Convert.ChangeType((Convert.ToInt64(lhsValue.Value) + Convert.ToInt64(rhsValue.Value)), typeof(T)),
-                    ulong _ => (T)Convert.ChangeType((Convert.ToUInt64(lhsValue.Value) + Convert.ToUInt64(rhsValue.Value)), typeof(T)),
-                    int _ => (T)Convert.ChangeType((Convert.ToInt32(lhsValue.Value) + Convert.ToInt32(rhsValue.Value)), typeof(T)),
-                    uint _ => (T)Convert.ChangeType((Convert.ToUInt32(lhsValue.Value) + Convert.ToUInt32(rhsValue.Value)), typeof(T)),
-                    short _ => (T)Convert.ChangeType((Convert.ToInt16(lhsValue.Value) + Convert.ToInt16(rhsValue.Value)), typeof(T)),
-                    ushort _ => (T)Convert.ChangeType((Convert.ToIntU16(lhsValue.Value) + Convert.ToUInt16(rhsValue.Value)), typeof(T)),
-                    decimal _ => (T)Convert.ChangeType((Convert.ToDecimal(lhsValue.Value) + Convert.ToDecimal(rhsValue.Value)), typeof(T)),
-                    double _ => (T)Convert.ChangeType((Convert.ToDouble(lhsValue.Value) + Convert.ToDouble(rhsValue.Value)), typeof(T)),
-                    float _ => (T)Convert.ChangeType((Convert.ToSingle(lhsValue.Value) + Convert.ToSingle(rhsValue.Value)), typeof(T)),
-                    char _ => (T)Convert.ChangeType((Convert.ToChar(lhsValue.Value) + Convert.ToChar(rhsValue.Value)), typeof(T)),
-                    byte _ => (T)Convert.ChangeType((Convert.ToByte(lhsValue.Value) + Convert.ToByte(rhsValue.Value)), typeof(T)),
-                    string _ => (T)Convert.ChangeType((Convert.ToString(lhsValue.Value) + Convert.ToString(rhsValue.Value)), typeof(T)),
-                    _ => throw new InvalidOperationException($"Type {typeof(T).Name} is not appendable. Consider implementing the IAppendable interface.")
-                }
-                return result;
-            }
-        };
-    }
-
-    // Mconcat
-    public static Try<T> Mconcat<T>(this IEnumerable<Try<T>> ms)
-    {
-        return () =>
-        {
-            var value = ms.Head();
-
-            foreach (var m in ms.Tail())
-            {
-                value = value.Mappend(m);
-            }
-            return value();
-        };
-    }
-
-    // Pattern matching
-    public static Func<R> Match<T, R>(this Try<T> self, Func<T, R> Success, Func<Exception, R> Fail)
-    {
-        if (Success == null) throw new ArgumentNullException("Success");
-        if (Fail == null) throw new ArgumentNullException("Fail");
-
-        return () =>
-        {
-            var res = self.Try();
-            return res.IsFaulted
-                ? Fail(res.Exception)
-                : Success(res.Value);
-        };
-    }
-    
-    public static Func<R> Match<T, R>(this Try<T> self, Func<T, R> Success)
-    {
-        if (Success == null) throw new ArgumentNullException("Success");
-
-        return () =>
-        {
-            var res = self.Try();
-            return res.IsFaulted
-                ? default(R)
-                : Success(res.Value);
-        };
-    }
-    
-    public static Func<Unit> Match<T>(this Try<T> self, Action<T> Success, Action<Exception> Fail)
-    {
-        if (Success == null) throw new ArgumentNullException("Success");
-        if (Fail == null) throw new ArgumentNullException("Fail");
-
-        return () =>
-        {
-            var res = self.Try();
-
-            if (res.IsFaulted)
-                Fail(res.Exception);
-            else
-                Success(res.Value);
-
-            return Unit.Default;
-        };
-    }
-    
-    public static Func<Unit> Match<T>(this Try<T> self, Action<T> Success)
-    {
-        if (Success == null) throw new ArgumentNullException("Success");
-
-        return () =>
-        {
-            var res = self.Try();
-            if (!res.IsFaulted)
-                Success(res.Value);
-            return Unit.Default;
-        };
-    }
-
-    // Fetch and memoize the result
-    public static Func<TryResult<T>> TryMemorize<T>(this Try<T> self)
-    {
-        TryResult<T> res;
-        try
-        {
-            res = self();
-        }
-        catch (Exception e)
-        {
-            res = new TryResult<T>(e);
-        }
-        return () => res;
-    }
 }
 
 public class Try
 {
-    // Mempty
-    public static Try<T> Mempty<T>()
+    // Empty
+    public static Try<T> Empty<T>()
     {
         return () => default(T);
     }
@@ -648,14 +497,8 @@ public struct Either<L, R> : IEquatable<Either<L, R>>
     }
 
     // Returns true if the monad object is in the Right state
-    public bool IsRight
-    {
-        get
-        {
-            return !IsLeft;
-        }
-    }
-
+    public bool IsRight => !IsLeft;
+    
     // Get the Left value and it throws an exception if the object is in the Right state
     public L Left
     {
@@ -857,7 +700,7 @@ public struct Either<L, R> : IEquatable<Either<L, R>>
                         char _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToChar(right) + Convert.ToChar(rhs.right)), typeof(R))),
                         byte _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToByte(right) + Convert.ToByte(rhs.right)), typeof(R))),
                         string _ => new Either<L, R>((R)Convert.ChangeType((Convert.ToString(right) + Convert.ToString(rhs.right)), typeof(R))),
-                        _ => throw new InvalidOperationException($"Type {typeof(R).Name} is not appendable.  Consider implementing the IAppendable interface.")
+                        _ => throw new InvalidOperationException($"Type {typeof(R).Name} is not appendable. Consider implementing the IAppendable interface.")
                     }
                     return result;
                 }
