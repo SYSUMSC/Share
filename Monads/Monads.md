@@ -4,6 +4,8 @@
 - A design pattern that allows structing programs generically while automating away boilerplate code needed by the program logic
 - "裹在被子里打牌"
 
+
+
 Firstly we need to introduce a type 'Maybe':
 ```haskell
 data Maybe a = Just a | Nothing
@@ -62,45 +64,73 @@ fail :: String -> Maybe a
 fail _ = Nothing
 ```
 
-# Why we need Monad
-- We want to program only using functions
-- The order of execution of multiple functions is unclear:
-    ```haskell
-    f :: Fractional a => a -> a
-    f x = x + 1
-    g :: Fractional a => a -> a -> a
-    g x y = x / y
-    ```
-    Solution: compose them, if we want fist g and then f, just write:
-    ```haskell
-    main :: Fractional a => a -> a -> a
-    main x y = f (g x y)
-    ```
-- But some functions might fail:
-    ```haskell
-    g 5 0 = ??? -- 5 is divided by 0
-    ```
-    Solution: We use 'Maybe'
-    ```haskell
-    g :: Eq a => Fractional a => a -> a -> Maybe a
-    g _ 0 = Nothing
-    g x y = Just (x / y)
-    ```
-- But g returns a Maybe, however in f, a 'Maybe' can not be applied to '+' with an 'Integer'
-    ```haskell
-    main 5 1 = ???
-    -- Maybe + Integer ?
-    ```
-    Solution:
-    ```haskell
-    main :: Eq a => Fractional a => a -> a -> Maybe a
-    main x y = fmap f (g x y)
-    ```
-- Use system states (no varibles, only functions in a program)
-    System states are hard to manage and they're not immutable which may lead to unexpected behaviors.  
-    Solution: We use Monad to operate states in an isolated environment with an operation of composed functions.
+# A world withour Monad
+We want to program only using functions.  
+
+A pure function is a function where the return value is only determined by its input, without observable side effects. It means, a specific input will lead to a specific output.  
+
+Hewever, let's take random generator as an example:   
+
+A random generator will access the random seed, which has "side effects": there're lots of states which are irrelavent with our code in these operations, and they are not explicit declared.  
+  
+`NextRandom()` accepts no input but it will output different numbers, and it's relavent with time.   
+
+```haskell
+NextRandom :: Int -- Shouldn't it be a value?
+```
+
+In order to program it in a "functional" way, we need to write a function which explicit declares all the states in parameters. And we need to pass those states via parameters, and in the end we can get a specific output from a specific input.  
+
+It's so complicated and hard to program.
+
+# Why Monad
+We want to use functions which have "side effects".  
+
+We don't want to handle all the states and environment by ourselves.  
+
+Therefore, we can wrap an operation which has side effects and its states and values in a "package" and regard it as a new operation `Random Int`, where random is the package.  
+
+```haskell
+NextInput :: Random Int
+```
+
+However, `Random Int` is not a `Int`, and `Random Int` + `Int` is illegal. We only care about pertinent values in the `Random` but not the `Random` itself, so how can we operate values in the `Random` without unwrap it? (If we unwrap it from `Random`, there will be states in our code again)  
+
+Solution: construct a chain!  
+
+We cannot do `Random Int` + `Int`, but we can do it in the `Random` by operate the pertinent values immediately after `NextRandom()`.  
+
+We have 
+```haskell
+NextRandom :: Random Int
+PlusOne :: Int -> Int
+```
+
+We use a `bind` (`>>=`) and a `return`:
+```haskell
+(>>=) :: Random Int -> (Int -> Random Int) -> Random Int
+return :: Int -> Random Int
+
+NextRandom() >>= (return PlusOne)
+```
+
+Finally we get a `Random Int`!
+
+# Who are Monads
+- `IO` is Monad
+- `List` is Monad
+- `Maybe` is Monad
+- `Random` is Monad
+- `Either` is Monad
+- `Try` is Monad
+- `Reader` is Monad
+- `Writer` is Monad
+- `State` is Monad
+- ......
+
 # Monads in C&#35;
 C&#35; is a general-purpose, multi-paradigm programming language encompassing strong typing, lexically scoped, imperative, declarative, functional, generic, object-oriented, and component-oriented programming disciplines.  
+
 Now let's see Monads in C&#35;!
 # `Task<T>` is Monad
 Asynchronous invoke
