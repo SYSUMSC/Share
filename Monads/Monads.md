@@ -1,4 +1,4 @@
-# Monads
+﻿# Monads
 ## What is Monad
 - A single unit
 - A design pattern that allows structing programs generically while automating away boilerplate code needed by the program logic
@@ -52,7 +52,7 @@ We use a `bind` (`>>=`) and a `return`:
 (>>=) :: Random Int -> (Int -> Random Int) -> Random Int
 return :: Int -> Random Int
 
-nextRandom() >>= (return plusOne)
+nextRandom >>= (return plusOne)
 -- Actually it's unnecessary. We can use plusOne <$> nextRandom instead (functor). Monad can be used for something like "randomStringWithLength" to generate a random string with specific length.
 ```
 
@@ -116,7 +116,7 @@ apply f (pure x) :: Maybe Num
 'Maybe' is Monad!
 ```haskell
 -- inherit relation
-Applicative => Functor
+Applicative => Monad
 
 -- No side effects are special cases with side effects
 return :: a -> Maybe a
